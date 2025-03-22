@@ -1,0 +1,39 @@
+"""This module contains the logging configuration for the TUI and for every new project it creates."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Optional, Union
+
+from loguru import logger, Logger, Message, Record
+from rich.console import Console
+from rich.progress import Progress
+from rich_gradient import Gradient, Color, GradientRule
+
+from {{ project_slug }}.config.setup import SetupProject
+from {{ project_slug }}.config.sink import RichSink
+from {{ project_slug }}.config.main import (
+    Log,
+    Setup,
+    get_console,
+    get_logger,
+    get_progress
+)
+
+__all__ = [
+    "get_console",
+    "get_logger",
+    "get_progress",
+    "Setup",
+    "Log",
+    "RichSink",
+    "Logger",
+    "Message",
+    "Record",
+    "Progress",
+    "Console",
+    "Gradient",
+    "Color",
+    "GradientRule",
+    "Path",
+]
+

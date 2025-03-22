@@ -1,0 +1,19 @@
+[project]
+name = "uv-tui"
+version = "0.1.0"
+description = "A TUI for managing uv projects."
+readme = "README.md"
+authors = [
+    { name = "Max Ludden", email = "dev@maxludden.com" }
+]
+requires-python = ">=3.13"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+ignore = [
+    'F401',  # Unused import
+]

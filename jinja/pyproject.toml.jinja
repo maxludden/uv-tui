@@ -1,0 +1,31 @@
+[project]
+name = "{{ project_name }}"
+version = "{{ project_version|default('0.1.0') }}"
+description = "{{ description|default('A description of this python project.') }}"
+readme = "README.md"
+authors = [
+    { name = "{{ author_name|default('Max Ludden') }}", email = "{{ author_email|default('dev@maxludden.com') }}" }
+]
+requires-python = "{{ version|default('>=3.13')}}"
+dependencies = [
+    {% for dep in dependencies %}
+    "{{ dep }}",
+    {% endfor %}
+] {# End of the Project Metadata #}
+
+{# Build System #}
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+{# Ignore Missing Imports and other annoying warnings #}
+{% if ignore_missing_inputs %}
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.pylint]
+disable = "C0116,C0115,C0114,C0103"
+
+[tool.ruff]
+ignore = ['F401']
+{% endfor %}
