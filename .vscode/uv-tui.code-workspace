@@ -1,0 +1,29 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		}
+	],
+	"settings": {
+		"files.exclude": {
+			"**/.git": true,
+			"**/.svn": true,
+			"**/.hg": true,
+			"**/.DS_Store": true,
+			"**/Thumbs.db": true,
+			"__pycache__/": true,
+			".pytest_cache/": true,
+			"**/__pycache__/**": true,
+			"requirements*": true,
+			"**/*.DS_Store": true,
+			"**/*__init__.py": true,
+			"**/*py.typed": true,
+			".history": true,
+			"**/.retool_types/**": true,
+			"**/*tsconfig.json": true,
+			".cache": true,
+			"retool.config.json": true
+		},
+		"python.defaultInterpreterPath": ".venv/bin/python"
+	}
+}
