@@ -1,0 +1,18 @@
+// .vscode/launch.json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Textual App (Dev Mode)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "textual",
+      "args": [
+        "run",
+        "main.py",
+        "--dev"
+      ],
+      "console": "integratedTerminal"
+    }
+  ]
+}

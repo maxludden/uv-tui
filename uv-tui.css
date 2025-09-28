@@ -1,0 +1,119 @@
+/* General App Layout */
+Screen {
+    layout: vertical;
+}
+
+Header {
+    dock: top;
+    height: 1;
+    background: $primary;
+    color: $text;
+}
+
+Footer {
+    dock: bottom;
+    height: 1;
+    background: $primary-darken-1;
+}
+
+/* Project List View */
+#project-list {
+    background: #000000;
+    padding: 1;
+}
+
+ProjectListItem {
+    layout: vertical;
+    padding: 1 4;
+    margin-bottom: 1;
+    background: #111111;
+    border: round $primary;
+    height: 5;
+}
+
+ProjectListItem:hover {
+    background: $primary-darken-1;
+    border: round $secondary;
+}
+
+.project-name {
+    color: $text;
+}
+
+.project-path {
+    color: $text-muted;
+}
+
+.project-status {
+    color: $warning;
+}
+
+.project-python {
+    color: $text-muted;
+}
+
+/* Project Detail Screen */
+ProjectDetailScreen {
+    background: $surface;
+}
+
+TabbedContent {
+    height: 1fr;
+}
+
+DataTable {
+    height: 1fr;
+    margin-bottom: 1;
+}
+
+.button-bar {
+    height: auto;
+    align: right middle;
+    padding-top: 1;
+}
+
+.button-bar Button {
+    margin-left: 1;
+}
+
+Log {
+    border: round $primary;
+    background: $panel;
+    height: 1fr;
+}
+
+#commands Input {
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+/* Modal Dialogs */
+#dialog {
+    padding: 0 1;
+    width: 60;
+    height: auto;
+    border: thick $primary-lighten-2;
+    background: $panel;
+    align: center middle;
+}
+
+#dialog > Label {
+    width: 100%;
+    text-align: center;
+    margin-bottom: 1;
+    text-style: bold;
+}
+
+#dialog > Horizontal {
+    width: 100%;
+    align: center middle;
+    height: auto;
+}
+
+#dialog Input {
+    margin-bottom: 1;
+}
+
+.error-dialog {
+    border-title-color: $error;
+}
