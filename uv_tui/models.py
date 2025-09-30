@@ -1,7 +1,8 @@
 """Data models used by the uv-tui application."""
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 
 @dataclass
@@ -33,6 +34,7 @@ class Project:
     status: str = "Unknown"
     python_version: str = "N/A"
     dependencies: List[Dependency] = field(default_factory=list)
+    last_modified: Optional[datetime] = None
 
     def __post_init__(self):
         self.path = self.path.expanduser().resolve()

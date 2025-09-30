@@ -2,19 +2,20 @@
 
 import shutil
 import tomllib
-from typing import List, cast, Optional
+from datetime import datetime
+from typing import List, Optional, cast
 
 from textual import work
 from textual.app import App, ComposeResult
-from textual.reactive import reactive, Reactive
+from textual.containers import Horizontal
+from textual.reactive import Reactive, reactive
 from textual.widgets import Footer, Header, ListView, Log
 
 from .config import PROJECTS_ROOT
 from .dialogs import DeleteProjectDialog, ErrorDialog, NewProjectDialog
 from .models import Project
-from .screens import ProjectDetailScreen
 from .uv_executor import UVCommandExecutor
-from .widgets import ProjectListItem
+from .widgets import ProjectDetailView, ProjectListItem
 
 
 class UvTuiApp(App):
@@ -23,7 +24,6 @@ class UvTuiApp(App):
     CSS_PATH = "/Users/maxludden/dev/py/uv-tui/uv-tui.css"
     TITLE = "uv-tui"
     SUB_TITLE = "Project Manager for astral/uv"
-    SCREENS = {"detail": ProjectDetailScreen}
     BINDINGS = [
         ("n", "new_project", "New Project"),
         ("a", "activate", "Activate Project"),
@@ -35,7 +35,9 @@ class UvTuiApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True, time_format="%I:%M %p")
-        yield ListView(id="project-list")
+        with Horizontal(id="main-content"):
+            yield ListView(id="project-list")
+            yield ProjectDetailView()
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -54,15 +56,23 @@ class UvTuiApp(App):
 
                 pyproject_path = item / "pyproject.toml"
                 python_version = "N/A"
+                description = ""
+                last_modified_dt: Optional[datetime] = None
                 try:
                     with open(pyproject_path, "rb") as f:
                         config = tomllib.load(f)
-                        python_version = config.get(
-                            "project", {}).get(
-                                "requires-python", "N/A"
-                        )
+                        project_cfg = config.get("project", {})
+                        python_version = project_cfg.get("requires-python", "N/A")
+                        description = project_cfg.get("description") or ""
                 except (tomllib.TOMLDecodeError, FileNotFoundError):
                     status = "Invalid pyproject.toml"
+                else:
+                    try:
+                        mtime = pyproject_path.stat().st_mtime
+                    except OSError:
+                        last_modified_dt = None
+                    else:
+                        last_modified_dt = datetime.fromtimestamp(mtime).astimezone()
 
                 found_projects.append(
                     Project(
@@ -70,6 +80,8 @@ class UvTuiApp(App):
                         path=item,
                         status=status,
                         python_version=python_version,
+                        description=description,
+                        last_modified=last_modified_dt,
                     )
                 )
         self.projects = sorted(found_projects, key=lambda p: p.name)
@@ -94,16 +106,25 @@ class UvTuiApp(App):
 
         lv = self.query_one(ListView)
         lv.clear()
+        detail_view = self.query_one(ProjectDetailView)
         for project in new_projects:
             lv.append(ProjectListItem(project))
+
+        if new_projects:
+            try:
+                lv.index = 0  # type: ignore[attr-defined]
+            except (AttributeError, TypeError):
+                pass
+            detail_view.show_project(new_projects[0])
+        else:
+            detail_view.show_project(None)
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle project selection."""
         project_item = event.item
         if isinstance(project_item, ProjectListItem):
-            detail_screen = cast(ProjectDetailScreen, self.get_screen("detail"))
-            detail_screen.project = project_item.project
-            self.push_screen("detail")
+            detail_view = self.query_one(ProjectDetailView)
+            detail_view.show_project(project_item.project)
 
     def action_new_project(self) -> None:
         """Action to open the new project dialog."""
@@ -138,12 +159,13 @@ class UvTuiApp(App):
         else:
             self.push_screen(ErrorDialog("No project selected to archive."))
 
-    async def _log_to_detail_screen(self, line: str) -> None:
-        """Helper to post a log message to the detail screen if it's active."""
-        if self.is_screen_installed("detail") and self.screen == self.get_screen(
-            "detail"
-        ):
-            self.get_screen("detail").post_message(ProjectDetailScreen.LogLine(line))
+    async def _log_to_detail_view(self, line: str) -> None:
+        """Stream log output into the detail view when available."""
+        try:
+            detail_view = self.query_one(ProjectDetailView)
+        except LookupError:
+            return
+        detail_view.post_message(ProjectDetailView.LogLine(line))
 
     @work(exclusive=True, group="uv_commands")
     async def create_project_worker(self, name: str) -> None:
@@ -155,7 +177,7 @@ class UvTuiApp(App):
 
         self.log(f"Creating project {name}...")
         result = await self.uv_executor.init(
-            project_path, name, self._log_to_detail_screen
+            project_path, name, self._log_to_detail_view
         )
         if result.success:
             await self.scan_projects()
@@ -167,94 +189,90 @@ class UvTuiApp(App):
     async def add_dependency_worker(
         self, project: Project, package: str, is_dev: bool
     ) -> None:
-        """Add a dependency to the given project asynchronously and stream logs \
- to the detail screen."""
-        detail_screen = cast(ProjectDetailScreen, self.get_screen("detail"))
+        """Add a dependency to the given project asynchronously and stream logs."""
+        detail_view = self.query_one(ProjectDetailView)
         try:
-            detail_screen.query_one(Log).clear()
-            self.push_screen(detail_screen)
+            detail_view.show_project(project)
+            detail_view.query_one(Log).clear()
         except (LookupError, RuntimeError, AttributeError):
-            # If the detail screen or Log widget is not available or push_screen fails,
-            # ignore and continue; these are expected non-fatal conditions.
+            # If the detail view or Log widget is not available, continue gracefully.
             pass
 
         result = await self.uv_executor.add(
-            project.path, package, is_dev, self._log_to_detail_screen
+            project.path, package, is_dev, self._log_to_detail_view
         )
         if result.success:
-            await detail_screen.update_dependencies_table()
-            await self._log_to_detail_screen(
+            await detail_view.update_dependencies_table()
+            await self._log_to_detail_view(
                 "[bold green]Dependency added successfully.[/bold green]"
             )
         else:
-            await self._log_to_detail_screen(
+            await self._log_to_detail_view(
                 f"[bold red]Error adding dependency: {result.return_code}[/bold red]"
             )
     async def remove_dependency_worker(self, project: Project, package: str) -> None:
-        """Remove a dependency from the given project asynchronously and stream logs \
-to the detail screen."""
-        detail_screen = cast(ProjectDetailScreen, self.get_screen("detail"))
+        """Remove a dependency from the project asynchronously and stream logs."""
+        detail_view = self.query_one(ProjectDetailView)
         try:
-            detail_screen.query_one(Log).clear()
-            self.push_screen(detail_screen)
+            detail_view.show_project(project)
+            detail_view.query_one(Log).clear()
         except (LookupError, RuntimeError, AttributeError):
-            # Non-fatal: log widget or screen may not be available; continue gracefully.
+            # Non-fatal: log widget may not be available; continue gracefully.
             pass
 
         result = await self.uv_executor.remove(
-            project.path, package, self._log_to_detail_screen
+            project.path, package, self._log_to_detail_view
         )
         if result.success:
-            await detail_screen.update_dependencies_table()
-            await self._log_to_detail_screen(
+            await detail_view.update_dependencies_table()
+            await self._log_to_detail_view(
                 "[bold green]Dependency removed successfully.[/bold green]"
             )
         else:
-            await self._log_to_detail_screen(
+            await self._log_to_detail_view(
                 f"[bold red]Error removing dependency: {result.return_code}[/bold red]"
             )
 
     async def sync_worker(self, project: Project) -> None:
-        """Synchronize the project's environment asynchronously and stream logs \
-to the detail screen."""
-        detail_screen = cast(ProjectDetailScreen, self.get_screen("detail"))
+        """Synchronize the project's environment asynchronously and stream logs."""
+        detail_view = self.query_one(ProjectDetailView)
         try:
-            detail_screen.query_one(Log).clear()
-            self.push_screen(detail_screen)
+            detail_view.show_project(project)
+            detail_view.query_one(Log).clear()
         except (LookupError, RuntimeError, AttributeError):
-            # Safe to ignore when detail screen/log isn't ready.
+            # Safe to ignore when detail view/log isn't ready.
             pass
 
-        result = await self.uv_executor.sync(project.path, self._log_to_detail_screen)
+        result = await self.uv_executor.sync(project.path, self._log_to_detail_view)
         if result.success:
-            await detail_screen.update_dependencies_table()
-            await self._log_to_detail_screen(
+            await detail_view.update_dependencies_table()
+            await self._log_to_detail_view(
                 "[bold green]Environment synced successfully.[/bold green]"
             )
         else:
-            await self._log_to_detail_screen(
+            await self._log_to_detail_view(
                 f"[bold red]Error syncing environment: {result.return_code}[/bold red]"
             )
 
     async def run_command_worker(self, project: Project, command: str) -> None:
-        """Run a command in the project's environment and stream its output to the detail screen."""
-        detail_screen = cast(ProjectDetailScreen, self.get_screen("detail"))
+        """Run a command in the project's environment and stream its output."""
+        detail_view = self.query_one(ProjectDetailView)
         try:
-            detail_screen.query_one(Log).clear()
-            self.push_screen(detail_screen)
+            detail_view.show_project(project)
+            detail_view.query_one(Log).clear()
         except (LookupError, RuntimeError, AttributeError):
-            # Ignore errors related to missing screen/widget or push_screen issues.
+            # Ignore errors related to missing widgets.
             pass
 
         result = await self.uv_executor.run(
-            project.path, command, self._log_to_detail_screen
+            project.path, command, self._log_to_detail_view
         )
         if result.success:
-            await self._log_to_detail_screen(
+            await self._log_to_detail_view(
                 "[bold green]Command finished successfully.[/bold green]"
             )
         else:
-            await self._log_to_detail_screen(
+            await self._log_to_detail_view(
                 f"[bold red]Command failed with exit code: {result.return_code}[/bold red]"
             )
 

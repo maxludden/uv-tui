@@ -20,6 +20,8 @@ Footer {
 #project-list {
     background: #000000;
     padding: 1;
+    width: 32;
+    height: 1fr;
 }
 
 ProjectListItem {
@@ -52,9 +54,43 @@ ProjectListItem:hover {
     color: $text-muted;
 }
 
-/* Project Detail Screen */
-ProjectDetailScreen {
+#main-content {
+    height: 1fr;
+}
+
+#project-detail {
     background: $surface;
+    padding: 1;
+    width: 1fr;
+}
+
+#detail-content {
+    height: 1fr;
+    layout: vertical;
+    padding-left: 1;
+    padding-right: 1;
+}
+
+#detail-placeholder {
+    height: 1fr;
+    align-horizontal: center;
+    align-vertical: middle;
+    color: $text-muted;
+}
+
+#project-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#project-description {
+    color: $text;
+    margin-bottom: 1;
+}
+
+#project-meta {
+    color: $text-muted;
+    margin-bottom: 1;
 }
 
 TabbedContent {
