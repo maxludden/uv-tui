@@ -177,6 +177,11 @@ class ProjectDetailView(Vertical):
                         yield DataTable(id="overview-dependencies")
                         with Horizontal(id="overview-actions"):
                             yield Button("Open in VS Code", id="open-vscode")
+                            yield Button(
+                                "Delete Project",
+                                id="request-delete",
+                                variant="error",
+                            )
                 with TabPane("Dependencies", id="dependencies"):
                     yield DataTable(id="project-dependencies")
                     with Horizontal(classes="button-bar"):
@@ -401,6 +406,9 @@ class ProjectDetailView(Vertical):
 
         if event.button.id == "open-vscode":
             cast(Any, self.app).activate_and_open_worker(self.project)
+
+        elif event.button.id == "request-delete":
+            cast(Any, self.app).action_delete_project()
 
         elif event.button.id == "add-dep":
 

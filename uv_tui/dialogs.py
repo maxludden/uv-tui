@@ -3,10 +3,12 @@
 These dialogs provide consistent UI affordances for error reporting,
 project creation, dependency management, and destructive confirmations.
 """
+from typing import Dict, List, Optional
+
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Label, Static
+from textual.widgets import Button, Input, Label, SelectionList, Static, Checkbox
 
 
 class ErrorDialog(ModalScreen):
@@ -47,25 +49,45 @@ class ErrorDialog(ModalScreen):
         self.app.pop_screen()
 
 
-class NewProjectDialog(ModalScreen[dict]):
+class NewProjectDialog(ModalScreen[Dict[str, object]]):
     """Modal dialog that collects details required to create a new project."""
+
+    LIBRARY_CHOICES: List[str] = [
+        "rich",
+        "rich-color-ext",
+        "rich-gradient",
+        "loguru",
+        "openai",
+        "dotenv",
+        "pydantic",
+        "beanie",
+        "asyncio",
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.selected_libraries: List[str] = []
+        self._libraries_ready = False
 
     def compose(self) -> ComposeResult:
         """Compose the widgets required to create a new project.
 
         Returns:
-            ComposeResult: Controls for entering a name and confirming/cancelling.
+            ComposeResult: Controls for entering metadata and launching the
+            library selection dialog.
         """
         with Vertical(id="dialog"):
             yield Label("Create New Project")
             yield Input(placeholder="Project Name", id="name")
+            yield Input(placeholder="Project Description", id="description")
+            yield Static("No libraries selected.", id="library-summary")
             yield Horizontal(
-                Button("Create", variant="primary", id="create"),
+                Button("Select Libraries", id="primary-action", variant="primary"),
                 Button("Cancel", id="cancel"),
             )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle Create/Cancel button presses and validate the project name.
+        """Handle Create/Cancel button presses and validate the project metadata.
 
         Args:
             event (Button.Pressed): Event emitted by the pressed button.
@@ -73,14 +95,54 @@ class NewProjectDialog(ModalScreen[dict]):
         Returns:
             None
         """
-        if event.button.id == "create":
-            name = self.query_one("#name", Input).value
-            if name:
-                self.dismiss({"name": name})
-            else:
-                self.app.push_screen(ErrorDialog("Project name cannot be empty."))
+        if event.button.id == "primary-action":
+            if self._libraries_ready:
+                self._finalize_creation()
+                return
+
+            dialog = LibrarySelectionDialog(
+                self.LIBRARY_CHOICES,
+                list(self.selected_libraries),
+            )
+
+            def _callback(selection: Optional[List[str]]) -> None:
+                if selection is not None:
+                    self.selected_libraries = selection
+                    summary = (
+                        ", ".join(selection)
+                        if selection
+                        else "No libraries selected."
+                    )
+                    self.query_one("#library-summary", Static).update(summary)
+                    self._libraries_ready = True
+                    self.query_one("#primary-action", Button).label = "Create Project"
+
+            self.app.push_screen(dialog, callback=_callback)
+        elif event.button.id == "cancel":
+            self.dismiss({})
         else:
             self.dismiss({})
+
+    def _finalize_creation(self) -> None:
+        """Validate the inputs and dismiss with project data."""
+
+        name_input = self.query_one("#name", Input)
+        desc_input = self.query_one("#description", Input)
+        name = name_input.value.strip()
+        description = desc_input.value.strip()
+
+        if not name:
+            self.app.push_screen(ErrorDialog("Project name cannot be empty."))
+            return
+
+        self.dismiss(
+            {
+                "name": name,
+                "description": description,
+                "libraries": list(self.selected_libraries),
+            }
+        )
+
 
 
 class AddDependencyDialog(ModalScreen[dict]):
@@ -189,9 +251,49 @@ project directory and its virtual environment."
             self.dismiss(False)
 
 
+class LibrarySelectionDialog(ModalScreen[List[str]]):
+    """Modal dialog for selecting optional libraries to install."""
+
+    def __init__(self, libraries: List[str], preselected: List[str]) -> None:
+        super().__init__()
+        self._libraries = libraries
+        self._preselected = set(preselected)
+
+    def compose(self) -> ComposeResult:
+        """Build the selection list interface."""
+        with Vertical(id="dialog"):
+            yield Label("Choose Libraries to Install")
+            selection = SelectionList[str](id="library-selection")
+            for library in self._libraries:
+                selection.add_option((library, library))
+            yield selection
+            yield Horizontal(
+                Button("Done", variant="primary", id="confirm-selection"),
+                Button("Cancel", id="cancel-selection"),
+            )
+
+    def on_mount(self) -> None:
+        """Apply the initial preselected state."""
+        selection = self.query_one("#library-selection", SelectionList)
+        for value in self._preselected:
+            try:
+                selection.select(value)
+            except KeyError:
+                continue
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle confirmation or cancellation of library selection."""
+        if event.button.id == "confirm-selection":
+            selection = self.query_one("#library-selection", SelectionList)
+            self.dismiss(list(selection.selected))
+        elif event.button.id == "cancel-selection":
+            self.dismiss(None)
+
+
 __all__ = [
     "ErrorDialog",
     "NewProjectDialog",
     "AddDependencyDialog",
     "DeleteProjectDialog",
+    "LibrarySelectionDialog",
 ]

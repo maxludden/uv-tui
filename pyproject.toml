@@ -3,10 +3,19 @@ name = "uv-tui"
 version = "0.1.0"
 description = "A TUI for managing Python virtual environments with uv."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
+    "packaging>=23.2",
     "rich>=14.1.0",
     "rich-color-ext>=0.1.4",
     "rich-gradient>=0.3.6",
     "textual-dev>=1.7.0",
+    "tomli>=2.0.1; python_version < \"3.11\"",
 ]
+
+[project.scripts]
+"uv-tui" = "uv_tui:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"

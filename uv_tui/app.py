@@ -9,8 +9,12 @@ tasks such as dependency management or environment synchronisation.
 import asyncio
 import os
 import shutil
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - fallback for Python <3.11
+    import tomli as tomllib  # type: ignore[no-redef]
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional, cast
 
 from textual import work
@@ -197,7 +201,11 @@ class UvTuiApp(App):
         def callback(data: Optional[dict]) -> None:
             # push_screen may invoke the callback with None when the dialog is dismissed
             if data:
-                self.create_project_worker(data["name"])
+                self.create_project_worker(
+                    data["name"],
+                    data.get("description", ""),
+                    data.get("libraries", []),
+                )
 
         self.push_screen(NewProjectDialog(), callback)
     def action_delete_project(self) -> None:
@@ -297,12 +305,83 @@ class UvTuiApp(App):
                     pass
                 break
 
+    async def _update_project_metadata(
+        self, project_path: Path, description: str
+    ) -> None:
+        """Write the provided description to the project's pyproject file."""
+
+        if not description.strip():
+            return
+
+        pyproject_path = project_path / "pyproject.toml"
+        try:
+            content = pyproject_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            self.log(f"Failed to read pyproject.toml: {exc}")
+            return
+
+        lines = content.splitlines()
+        updated_lines: List[str] = []
+        in_project = False
+        description_written = False
+        escaped_description = description.replace("\"", "\\\"")
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("["):
+                if in_project and not description_written:
+                    updated_lines.append(f'description = "{escaped_description}"')
+                    description_written = True
+                in_project = stripped == "[project]"
+                updated_lines.append(line)
+                continue
+
+            if in_project and stripped.startswith("description"):
+                updated_lines.append(f'description = "{escaped_description}"')
+                description_written = True
+            else:
+                updated_lines.append(line)
+
+        if in_project and not description_written:
+            updated_lines.append(f'description = "{escaped_description}"')
+
+        new_content = "\n".join(updated_lines) + "\n"
+        try:
+            pyproject_path.write_text(new_content, encoding="utf-8")
+        except OSError as exc:
+            self.log(f"Failed to update pyproject.toml: {exc}")
+
+    async def _install_initial_libraries(
+        self, project_path: Path, libraries: List[str]
+    ) -> None:
+        """Install the requested libraries into the new project environment."""
+
+        for library in libraries:
+            await self._log_to_detail_view(f"Adding dependency: {library}")
+            result = await self.uv_executor.add(
+                project_path, library, False, self._log_to_detail_view
+            )
+            if result.success:
+                await self._log_to_detail_view(
+                    f"[bold green]{library} installed successfully[/bold green]"
+                )
+            else:
+                await self._log_to_detail_view(
+                    f"[bold red]Failed to install {library}: {result.return_code}[/bold red]"
+                )
+
     @work(exclusive=True, group="uv_commands")
-    async def create_project_worker(self, name: str) -> None:
+    async def create_project_worker(
+        self, name: str, description: str, libraries: List[str]
+    ) -> None:
         """Create a new uv project and refresh discovery state.
 
         Args:
             name (str): Directory / package name to pass to ``uv init``.
+            description (str): Optional project description to write into the
+                generated ``pyproject.toml``.
+            libraries (List[str]): Additional libraries to install once the
+                project scaffold is created.
 
         Returns:
             None
@@ -317,6 +396,9 @@ class UvTuiApp(App):
             project_path, name, self._log_to_detail_view
         )
         if result.success:
+            await self._update_project_metadata(project_path, description)
+            if libraries:
+                await self._install_initial_libraries(project_path, libraries)
             await self.scan_projects()
             self.log(f"Project '{name}' created successfully.")
         else:

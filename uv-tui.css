@@ -121,7 +121,18 @@ ProjectListItem:focus, ProjectListItem:focus-within {
     background: $primary;
     color: $text;
     min-width: 24;
-    width: 1fr;
+    width: 2fr;
+    align: left middle;
+}
+
+#request-delete {
+    padding: 0 3;
+    margin-top: 1;
+    margin-left: 1;
+    background: $error-darken-3;
+    color: $text;
+    min-width: 24;
+    width: auto;
     align: left middle;
 }
 
@@ -130,10 +141,22 @@ ProjectListItem:focus, ProjectListItem:focus-within {
     height: 1fr;
 }
 
+TabPane#overview {
+    height: 1fr;
+}
+
 #overview-actions {
     layout: horizontal;
     align: left middle;
     height: auto;
+    dock: bottom;
+    padding-top: 1;
+    padding-left: 1;
+}
+
+#overview-dependencies {
+    height: 1fr;
+    margin-bottom: 0;
 }
 
 TabbedContent {
@@ -167,6 +190,13 @@ Log {
 }
 
 /* Modal Dialogs */
+ModalScreen {
+    layout: vertical;
+    overflow-y: auto;
+    background: $background 60%;
+    align: center middle;
+}
+
 #dialog {
     padding: 0 1;
     width: 60;

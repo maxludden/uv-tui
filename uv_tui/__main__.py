@@ -1,15 +1,12 @@
-"""CLI entry point for launching the uv-tui Textual application."""
+"""Executable entry point for the uv-tui Textual application."""
+
 import shutil
 
-from uv_tui.app import UvTuiApp
+from .app import UvTuiApp
 
 
 def main() -> None:
-    """Launch the Textual UI after validating the ``uv`` CLI is available.
-
-    Returns:
-        None
-    """
+    """Run the uv-tui Textual application after ensuring `uv` is installed."""
     if not shutil.which("uv"):
         print("Error: `uv` command not found.")
         print("Please install uv from Astral: https://github.com/astral-sh/uv")
