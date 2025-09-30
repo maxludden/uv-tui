@@ -1,5 +1,13 @@
-"""Core Textual application for uv-tui."""
+"""Core Textual application for uv-tui.
 
+This module wires together the Textual application that powers uv-tui. It
+defines the :class:`~uv_tui.app.UvTuiApp` class responsible for scanning project
+directories, responding to user interactions, and orchestrating long-running
+tasks such as dependency management or environment synchronisation.
+"""
+
+import asyncio
+import os
 import shutil
 import tomllib
 from datetime import datetime
@@ -19,7 +27,13 @@ from .widgets import ProjectDetailView, ProjectListItem
 
 
 class UvTuiApp(App):
-    """A Textual TUI for managing uv projects."""
+    """Textual application that presents and manages uv projects.
+
+    The app renders a list of discovered projects, surfaces detailed
+    information for the active selection, and exposes actions for modifying the
+    selected project. It also coordinates asynchronous workers that invoke the
+    ``uv`` command-line tool.
+    """
 
     CSS_PATH = "/Users/maxludden/dev/py/uv-tui/uv-tui.css"
     TITLE = "uv-tui"
@@ -34,6 +48,13 @@ class UvTuiApp(App):
     uv_executor = UVCommandExecutor()
 
     def compose(self) -> ComposeResult:
+        """Create the static layout for the application.
+
+        Returns:
+            ComposeResult: A generator of root widgets (header, list/detail
+            view, and footer) that Textual mounts into the DOM.
+        """
+        self.theme = "textual-dark"
         yield Header(show_clock=True, time_format="%I:%M %p")
         with Horizontal(id="main-content"):
             yield ListView(id="project-list")
@@ -41,11 +62,24 @@ class UvTuiApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        """Called when the app is first mounted."""
+        """Complete asynchronous initialisation once the app is mounted.
+
+        Returns:
+            None
+        """
         await self.scan_projects()
 
     async def scan_projects(self) -> None:
-        """Scans the PROJECTS_ROOT directory for uv projects."""
+        """Discover uv projects beneath :data:`uv_tui.config.PROJECTS_ROOT`.
+
+        Iterates the configured project root, gathers metadata for directories
+        that contain a ``pyproject.toml`` file, and stores the resulting
+        :class:`~uv_tui.models.Project` instances in the reactive ``projects``
+        list.
+
+        Returns:
+            None
+        """
         found_projects: List[Project] = []
         if not PROJECTS_ROOT.exists():
             PROJECTS_ROOT.mkdir(parents=True)
@@ -57,6 +91,8 @@ class UvTuiApp(App):
                 pyproject_path = item / "pyproject.toml"
                 python_version = "N/A"
                 description = ""
+                version = "0.1.0"
+                primary_dependencies: List[str] = []
                 last_modified_dt: Optional[datetime] = None
                 try:
                     with open(pyproject_path, "rb") as f:
@@ -64,6 +100,14 @@ class UvTuiApp(App):
                         project_cfg = config.get("project", {})
                         python_version = project_cfg.get("requires-python", "N/A")
                         description = project_cfg.get("description") or ""
+                        version = str(project_cfg.get("version", "0.1.0"))
+                        raw_deps = project_cfg.get("dependencies") or []
+                        if isinstance(raw_deps, list):
+                            for entry in raw_deps:
+                                if isinstance(entry, str):
+                                    primary_dependencies.append(entry)
+                                else:
+                                    primary_dependencies.append(str(entry))
                 except (tomllib.TOMLDecodeError, FileNotFoundError):
                     status = "Invalid pyproject.toml"
                 else:
@@ -81,15 +125,24 @@ class UvTuiApp(App):
                         status=status,
                         python_version=python_version,
                         description=description,
+                        version=version,
+                        primary_dependencies=primary_dependencies,
                         last_modified=last_modified_dt,
                     )
                 )
         self.projects = sorted(found_projects, key=lambda p: p.name)
 
     def watch_projects(self, *args) -> None:
-        """Reactive method to update the project list view.
-        Accepts either (new_projects,) or (old_projects, new_projects) to be
-        compatible with different Textual versions.
+        """React to changes in the ``projects`` reactive attribute.
+
+        Args:
+            *args: Either ``(new_projects,)`` or ``(old_projects, new_projects)``
+                depending on the Textual version. The final positional argument
+                is treated as the latest list of
+                :class:`~uv_tui.models.Project` instances.
+
+        Returns:
+            None
         """
         # Determine new_projects from args
         new_projects = None
@@ -111,23 +164,35 @@ class UvTuiApp(App):
             lv.append(ProjectListItem(project))
 
         if new_projects:
-            try:
-                lv.index = 0  # type: ignore[attr-defined]
-            except (AttributeError, TypeError):
-                pass
-            detail_view.show_project(new_projects[0])
+            first_project = new_projects[0]
+            self._select_project_in_list(first_project)
+            detail_view.show_project(first_project)
         else:
+            self._select_project_in_list(None)
             detail_view.show_project(None)
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """Handle project selection."""
+        """Handle selection changes within the project list.
+
+        Args:
+            event (ListView.Selected): Textual event describing the selected
+                list item.
+
+        Returns:
+            None
+        """
         project_item = event.item
         if isinstance(project_item, ProjectListItem):
             detail_view = self.query_one(ProjectDetailView)
+            self._select_project_in_list(project_item.project)
             detail_view.show_project(project_item.project)
 
     def action_new_project(self) -> None:
-        """Action to open the new project dialog."""
+        """Open the dialog that collects data for a new project.
+
+        Returns:
+            None
+        """
 
         def callback(data: Optional[dict]) -> None:
             # push_screen may invoke the callback with None when the dialog is dismissed
@@ -136,7 +201,11 @@ class UvTuiApp(App):
 
         self.push_screen(NewProjectDialog(), callback)
     def action_delete_project(self) -> None:
-        """Action to delete the currently highlighted project."""
+        """Prompt for confirmation before deleting the highlighted project.
+
+        Returns:
+            None
+        """
         lv = self.query_one(ListView)
         if lv.index is not None and isinstance(lv.children[lv.index], ProjectListItem):
             project = cast(ProjectListItem, lv.children[lv.index]).project
@@ -151,7 +220,11 @@ class UvTuiApp(App):
             self.push_screen(ErrorDialog("No project selected to delete."))
 
     def action_archive_project(self) -> None:
-        """Action to archive the currently highlighted project."""
+        """Archive the highlighted project into a zip file.
+
+        Returns:
+            None
+        """
         lv = self.query_one(ListView)
         if lv.index is not None and isinstance(lv.children[lv.index], ProjectListItem):
             project = cast(ProjectListItem, lv.children[lv.index]).project
@@ -160,16 +233,80 @@ class UvTuiApp(App):
             self.push_screen(ErrorDialog("No project selected to archive."))
 
     async def _log_to_detail_view(self, line: str) -> None:
-        """Stream log output into the detail view when available."""
+        """Forward worker output to the active detail view.
+
+        Args:
+            line (str): Rich-formatted text to append to the log widget.
+
+        Returns:
+            None
+        """
         try:
             detail_view = self.query_one(ProjectDetailView)
         except LookupError:
             return
         detail_view.post_message(ProjectDetailView.LogLine(line))
 
+    def _select_project_in_list(self, project: Optional[Project]) -> None:
+        """Ensure the ListView selection matches the provided project.
+
+        Args:
+            project (Optional[Project]): Project to select. ``None`` clears the
+                current selection.
+
+        Returns:
+            None
+        """
+
+        try:
+            lv = self.query_one(ListView)
+        except LookupError:
+            return
+
+        if project is None:
+            try:
+                lv.index = None  # type: ignore[attr-defined]
+            except (AttributeError, TypeError):
+                pass
+            try:
+                lv.highlighted_child = None  # type: ignore[attr-defined]
+            except (AttributeError, TypeError):
+                pass
+            return
+
+        for idx, child in enumerate(lv.children):
+            if (
+                isinstance(child, ProjectListItem)
+                and child.project.path == project.path
+            ):
+                try:
+                    if getattr(lv, "index", None) != idx:
+                        lv.index = idx  # type: ignore[attr-defined]
+                except (AttributeError, TypeError):
+                    pass
+                try:
+                    if getattr(lv, "highlighted_child", None) is not child:
+                        lv.highlighted_child = child  # type: ignore[attr-defined]
+                except (AttributeError, TypeError):
+                    pass
+                try:
+                    scroll_to_index = getattr(lv, "scroll_to_index", None)
+                    if callable(scroll_to_index):
+                        scroll_to_index(idx)
+                except Exception:
+                    pass
+                break
+
     @work(exclusive=True, group="uv_commands")
     async def create_project_worker(self, name: str) -> None:
-        """Create a new uv project asynchronously and refresh the project list on success."""
+        """Create a new uv project and refresh discovery state.
+
+        Args:
+            name (str): Directory / package name to pass to ``uv init``.
+
+        Returns:
+            None
+        """
         project_path = PROJECTS_ROOT / name
         if project_path.exists():
             self.push_screen(ErrorDialog(f"Project directory '{name}' already exists."))
@@ -189,9 +326,20 @@ class UvTuiApp(App):
     async def add_dependency_worker(
         self, project: Project, package: str, is_dev: bool
     ) -> None:
-        """Add a dependency to the given project asynchronously and stream logs."""
+        """Install a dependency into the project using ``uv add``.
+
+        Args:
+            project (Project): Target project definition.
+            package (str): Requirement specifier understood by uv.
+            is_dev (bool): ``True`` when the dependency should be added to the
+                development group.
+
+        Returns:
+            None
+        """
         detail_view = self.query_one(ProjectDetailView)
         try:
+            self._select_project_in_list(project)
             detail_view.show_project(project)
             detail_view.query_one(Log).clear()
         except (LookupError, RuntimeError, AttributeError):
@@ -211,9 +359,18 @@ class UvTuiApp(App):
                 f"[bold red]Error adding dependency: {result.return_code}[/bold red]"
             )
     async def remove_dependency_worker(self, project: Project, package: str) -> None:
-        """Remove a dependency from the project asynchronously and stream logs."""
+        """Remove a dependency from the project via ``uv remove``.
+
+        Args:
+            project (Project): Project whose environment should be modified.
+            package (str): Package name to remove.
+
+        Returns:
+            None
+        """
         detail_view = self.query_one(ProjectDetailView)
         try:
+            self._select_project_in_list(project)
             detail_view.show_project(project)
             detail_view.query_one(Log).clear()
         except (LookupError, RuntimeError, AttributeError):
@@ -234,9 +391,17 @@ class UvTuiApp(App):
             )
 
     async def sync_worker(self, project: Project) -> None:
-        """Synchronize the project's environment asynchronously and stream logs."""
+        """Synchronise the project's environment with its dependency graph.
+
+        Args:
+            project (Project): Project to synchronise.
+
+        Returns:
+            None
+        """
         detail_view = self.query_one(ProjectDetailView)
         try:
+            self._select_project_in_list(project)
             detail_view.show_project(project)
             detail_view.query_one(Log).clear()
         except (LookupError, RuntimeError, AttributeError):
@@ -255,9 +420,18 @@ class UvTuiApp(App):
             )
 
     async def run_command_worker(self, project: Project, command: str) -> None:
-        """Run a command in the project's environment and stream its output."""
+        """Execute an arbitrary command inside the project's uv environment.
+
+        Args:
+            project (Project): Project providing the execution context.
+            command (str): Shell-style command string to pass to ``uv run``.
+
+        Returns:
+            None
+        """
         detail_view = self.query_one(ProjectDetailView)
         try:
+            self._select_project_in_list(project)
             detail_view.show_project(project)
             detail_view.query_one(Log).clear()
         except (LookupError, RuntimeError, AttributeError):
@@ -276,12 +450,86 @@ class UvTuiApp(App):
                 f"[bold red]Command failed with exit code: {result.return_code}[/bold red]"
             )
 
+    @work(exclusive=True, group="uv_commands")
+    async def activate_and_open_worker(self, project: Project) -> None:
+        """Prepare the project's environment and open it in VS Code.
+
+        Args:
+            project (Project): Project to activate and open in an editor.
+
+        Returns:
+            None
+        """
+        detail_view = self.query_one(ProjectDetailView)
+        try:
+            detail_view.show_project(project)
+            detail_view.query_one(Log).clear()
+        except (LookupError, RuntimeError, AttributeError):
+            pass
+
+        venv_path = project.path / ".venv"
+        if not venv_path.exists():
+            await self._log_to_detail_view(
+                "[yellow]Virtual environment missing. Running uv sync...[/yellow]"
+            )
+            result = await self.uv_executor.sync(project.path, self._log_to_detail_view)
+            if not result.success:
+                await self._log_to_detail_view(
+                    "[bold red]Failed to prepare virtual environment.[/bold red]"
+                )
+                return
+        else:
+            await self._log_to_detail_view("Virtual environment already present.")
+
+        activate_script = (
+            venv_path / "Scripts" / "activate"
+            if os.name == "nt"
+            else venv_path / "bin" / "activate"
+        )
+        if activate_script.exists():
+            await self._log_to_detail_view(
+                f"To activate manually run: source {activate_script}" if os.name != "nt" else f"To activate manually run: {activate_script}"
+            )
+        else:
+            await self._log_to_detail_view(
+                "[yellow]Activation script not found; ensure uv sync completed successfully.[/yellow]"
+            )
+
+        code_command = ["code"]
+        if os.environ.get("TERM_PROGRAM", "").lower() == "vscode":
+            code_command.append("--reuse-window")
+        code_command.append(str(project.path))
+
+        await self._log_to_detail_view(
+            "Launching VS Code with the project folder..."
+        )
+        try:
+            process = await asyncio.create_subprocess_exec(*code_command)
+        except FileNotFoundError:
+            await self._log_to_detail_view(
+                "[bold red]VS Code command 'code' not found in PATH.[/bold red]"
+            )
+            return
+
+        return_code = await process.wait()
+        if return_code == 0:
+            await self._log_to_detail_view(
+                "[bold green]Project opened in VS Code.[/bold green]"
+            )
+        else:
+            await self._log_to_detail_view(
+                f"[bold red]Opening VS Code failed with exit code {return_code}.[/bold red]"
+            )
+
     @work(exclusive=True, group="filesystem")
     async def delete_project_worker(self, project: Project) -> None:
-        """Delete the given project directory and refresh the project list.
+        """Delete an on-disk project directory and refresh discovery state.
 
-        This runs asynchronously and is executed in the filesystem work group
-        to avoid blocking the UI.
+        Args:
+            project (Project): Project whose directory should be removed.
+
+        Returns:
+            None
         """
         self.log(f"Deleting project {project.name}...")
         try:
@@ -294,11 +542,13 @@ class UvTuiApp(App):
 
     @work(exclusive=True, group="filesystem")
     async def archive_project_worker(self, project: Project) -> None:
-        """Archive the given project directory into a zip under PROJECTS_ROOT/_archived \
-and refresh the project list.
+        """Zip a project directory and relocate it beneath ``_archived``.
 
-        The archive will be created as a zip file named after the project and the
-        original project directory will be removed on success.
+        Args:
+            project (Project): Project to archive.
+
+        Returns:
+            None
         """
         self.log(f"Archiving project {project.name}...")
         archive_dir = PROJECTS_ROOT / "_archived"

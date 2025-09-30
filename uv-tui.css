@@ -20,15 +20,19 @@ Footer {
 #project-list {
     background: #000000;
     padding: 1;
-    width: 32;
+    width: 1fr;
     height: 1fr;
 }
+
+
 
 ProjectListItem {
     layout: vertical;
     padding: 1 4;
-    margin-bottom: 1;
-    background: #111111;
+    margin-left: 1;
+    margin-right: 1;
+    # margin-bottom: 1;
+    background: #000000;
     border: round $primary;
     height: 5;
 }
@@ -36,6 +40,12 @@ ProjectListItem {
 ProjectListItem:hover {
     background: $primary-darken-1;
     border: round $secondary;
+}
+
+ProjectListItem:focus, ProjectListItem:focus-within {
+    background: $secondary;
+    color: $background;
+    border: thick $primary-lighten-2;
 }
 
 .project-name {
@@ -50,7 +60,7 @@ ProjectListItem:hover {
     color: $warning;
 }
 
-.project-python {
+.project-version {
     color: $text-muted;
 }
 
@@ -61,7 +71,7 @@ ProjectListItem:hover {
 #project-detail {
     background: $surface;
     padding: 1;
-    width: 1fr;
+    width: 2fr;
 }
 
 #detail-content {
@@ -81,16 +91,49 @@ ProjectListItem:hover {
 #project-title {
     text-style: bold;
     margin-bottom: 1;
+    background: $primary;
+    padding: 1 2
 }
 
 #project-description {
-    color: $text;
+    color: $secondary;
     margin-bottom: 1;
 }
 
 #project-meta {
     color: $text-muted;
     margin-bottom: 1;
+}
+
+#overview-version,
+#overview-python {
+    margin-bottom: 1;
+}
+
+#overview-dependencies {
+    height: 10;
+    margin-bottom: 1;
+}
+
+#open-vscode {
+    padding: 0 3;
+    margin-top: 1;
+    background: $primary;
+    color: $text;
+    min-width: 24;
+    width: 1fr;
+    align: left middle;
+}
+
+#overview-content {
+    layout: vertical;
+    height: 1fr;
+}
+
+#overview-actions {
+    layout: horizontal;
+    align: left middle;
+    height: auto;
 }
 
 TabbedContent {
